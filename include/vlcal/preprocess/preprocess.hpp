@@ -28,6 +28,8 @@ protected:
   virtual std::vector<std::string> get_point_fields(const std::string& bag_filename, const std::string& points_topic) = 0;
   virtual cv::Size get_image_size(const std::string& bag_filename, const std::string& image_topic) = 0;
   virtual std::tuple<std::string, std::vector<double>, std::vector<double>> get_camera_info(const std::string& bag_filename, const std::string& camera_info_topic) = 0;
+  /// Remap file of a "remap" camera named by the camera info (empty if none)
+  virtual std::string get_camera_remap(const std::string& bag_filename, const std::string& camera_info_topic) { return ""; }
   virtual cv::Mat get_image(const std::string& bag_filename, const std::string& image_topic) = 0;
   virtual std::shared_ptr<PointCloudReader> get_point_cloud_reader(const std::string& bag_filename, const std::string& points_topic, const std::string& intensity_channel) = 0;
 

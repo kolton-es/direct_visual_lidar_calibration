@@ -42,7 +42,9 @@ std::vector<int> ViewCulling::view_culling(const std::vector<int>& point_indices
 
   for (int i = 0; i < points_camera.size(); i++) {
     const auto& pt_camera = points_camera[i];
-    if (pt_camera.normalized().head<3>().z() < min_z) {
+    // Angle of (x, y, z) only; normalizing the homogeneous (x, y, z, 1) made
+    // near points look further off-axis than they are
+    if (pt_camera.head<3>().normalized().z() < min_z) {
       // Out of FoV
       continue;
     }

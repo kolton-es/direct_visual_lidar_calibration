@@ -31,8 +31,12 @@ Differences from upstream:
   pure-Python [rosbags](https://gitlab.com/ternaris/rosbags) library; no ROS
   installation is needed.
 - Every other tool (`preprocess_map`, `initial_guess_manual`,
-  `initial_guess_auto`, `calibrate`, `viewer`) is unchanged and reads/writes
-  the same files as upstream.
+  `initial_guess_auto`, `calibrate`, `viewer`) reads/writes the same files as
+  upstream.
+- Added the `remap` camera model: the camera is given by a precomputed
+  `cv::remap` map instead of a parametric model, so any calibrated model
+  (e.g. Double Sphere from Kalibr/TartanCalib) can be used; see
+  [Remap cameras](#remap-cameras).
 - The automatic initial guess matches images with DaD keypoints and the RoMa
   dense matcher (`find_matches_roma.py`, MIT licensed) instead of SuperGlue
   (non-commercial license); it writes the same `*_matches.json` for
@@ -128,9 +132,58 @@ each sequence: the image is matched with the first scans.
         }
 
 `distortion_model` is `plumb_bob`, `fisheye`/`equidistant`, `omnidir` (add
-`xi` to `intrinsics`) or `equirectangular`. Without the file, pass
+`xi` to `intrinsics`), `equirectangular` or `remap` (below). Without the file, pass
 `--camera_model`, `--camera_intrinsics` and `--camera_distortion_coeffs` to
 `preprocess`.
+
+### Remap cameras
+
+A `remap` camera is given by an OpenCV pixel remap instead of intrinsics:
+
+        {
+          "distortion_model": "remap",
+          "remap_file": "camera_remap.yml.gz"
+        }
+
+`remap_file` is relative to `camera_info.json` (or absolute); `preprocess
+--camera_model remap --camera_remap FILE` does the same without the file.
+The remap is an OpenCV FileStorage file (`.yml`, `.yml.gz`, `.xml`, `.json`)
+with `image_width`, `image_height`, `virtual_model: equidistant`,
+`virtual_fx`, `virtual_fy`, `virtual_cx`, `virtual_cy` and `map` (CV_32FC2,
+rows x cols of the ideal image). `map` is a `cv::remap` map from an ideal
+equidistant camera (r = f * theta, no distortion; OpenCV's fisheye model with
+D = 0) to the real image: entry (v', u') is the real pixel (x, y), pixel centres
+at integers, that sees the ray of ideal pixel (u', v'); entries below -1000 or
+not finite mark rays the source model cannot project. A point is projected
+analytically into the ideal image and the map is interpolated bicubically there
+(`ceres::BiCubicInterpolator`, which also gives the derivatives), so the map
+should cover the real image with a few pixels of margin; points outside it are
+treated as not visible. `preprocess` checks `image_width`/`image_height`
+against the image and copies the file next to `calib.json`
+(`"camera": {"camera_model": "remap", "remap_file": ...}`), where the later
+tools load it.
+
+`services/tartan_calib_test/scripts/calibrate_ds.sh` in the GRA repo
+calibrates a Double Sphere camera with TartanCalib and writes such a map
+(`ds_remap.py`).
+
+Validation (2026-10-29, Ouster sample data, `--dynamic_lidar_integration`): a
+remap of the plumb_bob camera reproduces `plumb_bob` projections to 1.5e-4 px
+inside the image and its derivatives to 2e-4 of the Jacobian's largest entry.
+On the same preprocessed data, a remap covering only the image (as
+`ds_remap.py` writes) calibrates 0.8 mm / 0.007° from plumb_bob, and both are
+within 2 mm / 0.02° of the ROS baseline.
+
+That needed a fix to upstream view culling. `ViewCulling` tested the view
+angle on the homogeneous point (`pt_camera.normalized().head<3>()`, which
+includes w = 1), so the cosine shrank by d / sqrt(d² + 1) and near points at
+the image edge were culled although they are in view. plumb_bob hid this:
+`estimate_camera_fov` lands on its polynomial's fold-back root (57.1°, against
+a true corner angle of 47.6°), and the extra margin let most of those points
+through. With the remap's exact 47.6° the bug culled 6.7% of the points, and
+the calibration ended 32 mm / 0.53° away at a higher NID. The fork tests
+`head<3>().normalized()`, as the other FOV checks do; plumb_bob results move
+by 0.3 mm.
 
 Scans are PCD or PLY files with fields `x y z` (float or double), an intensity
 field (`intensity` or `reflectivity` are found automatically, otherwise pass

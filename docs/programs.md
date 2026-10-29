@@ -19,7 +19,8 @@ $ preprocess data_path dst_path
 | --camera_info                      | Camera info file in each sequence (default: the only `*camera_info*.json`)      |
 | --image                            | Image file in each sequence (default: the only image)                           |
 | --points                           | Scan directory in each sequence (default: the only directory of PCD/PLY files)  |
-| --camera_model                     | auto, atan, plumb_bob, fisheye, omnidir, or equirectangular                     |
+| --camera_model                     | auto, atan, plumb_bob, fisheye, omnidir, equirectangular, or remap              |
+| --camera_remap                     | Pixel remap file of a remap camera (default: `remap_file` in camera_info.json)  |
 | --camera_intrinsic                 | Camera intrinsic parameters: fx,fy,cx,cy(,xi) (Don't put spaces between values) |
 | --camera_distortion_coeffs         | Camera distortion parameters [k1,k2,p1,p2,k3] (Don't put spaces between values) |
 | --voxel_resolution                 | Downsampling resolution                                                         |

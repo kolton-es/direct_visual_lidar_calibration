@@ -17,6 +17,7 @@
 #include <vlcal/common/time_keeper.hpp>
 #include <vlcal/common/console_colors.hpp>
 
+#include <camera/remap.hpp>
 #include <camera/create_camera.hpp>
 #include <vlcal/common/estimate_fov.hpp>
 #include <vlcal/preprocess/generate_lidar_image.hpp>
@@ -51,7 +52,8 @@ bool Preprocess::run(int argc, char** argv) {
     ("camera_info", value<std::string>(), "camera info file in each sequence directory (default: the only *camera_info*.json)")
     ("image", value<std::string>(), "image file in each sequence directory (default: the only image file)")
     ("points", value<std::string>(), "scan directory in each sequence directory (default: the only directory of PCD/PLY scans)")
-    ("camera_model", value<std::string>()->default_value("auto"), "auto, atan, plumb_bob, fisheye(=equidistant), omnidir, or equirectangular")
+    ("camera_model", value<std::string>()->default_value("auto"), "auto, atan, plumb_bob, fisheye(=equidistant), omnidir, equirectangular, or remap")
+    ("camera_remap", value<std::string>(), "pixel remap file of a remap camera (default: remap_file in camera_info.json)")
     ("camera_intrinsics", value<std::string>(), "camera intrinsic parameters [fx,fy,cx,cy(,xi)] (don't put spaces between values!!)")
     ("camera_distortion_coeffs", value<std::string>(), "camera distortion parameters [k1,k2,p1,p2,k3] (don't put spaces between values!!)")
     ("k_neighbors", value<int>()->default_value(20), "num of neighbor points used for point covariance estimation of CT-ICP")
@@ -141,6 +143,33 @@ bool Preprocess::run(int argc, char** argv) {
   std::cout << "intrinsics  : " << Eigen::Map<const Eigen::VectorXd>(intrinsics.data(), intrinsics.size()).transpose() << std::endl;
   std::cout << "dist_coeffs : " << Eigen::Map<const Eigen::VectorXd>(distortion_coeffs.data(), distortion_coeffs.size()).transpose() << std::endl;
 
+  // A remap camera is copied next to calib.json so that the later steps find it
+  std::string camera_remap_file;
+  if (camera_model == "remap") {
+    const std::string remap_source = vm.count("camera_remap") ? vm["camera_remap"].as<std::string>() : get_camera_remap(bag_filenames.front(), camera_info_topic);
+    if (remap_source.empty()) {
+      std::cerr << vlcal::console::bold_red << "error: remap camera without a remap file (set remap_file in camera_info.json or --camera_remap)" << vlcal::console::reset << std::endl;
+      abort();
+    }
+
+    const auto remap_camera = std::dynamic_pointer_cast<const camera::RemapCamera>(camera::load_remap_camera(remap_source));
+    if (!remap_camera) {
+      abort();
+    }
+    if (remap_camera->image_size() != Eigen::Vector2i(image_size.width, image_size.height)) {
+      std::cerr << vlcal::console::bold_red << "error: the camera remap is for " << remap_camera->image_size().x() << "x" << remap_camera->image_size().y() << " images but the image is "
+                << image_size.width << "x" << image_size.height << vlcal::console::reset << std::endl;
+      abort();
+    }
+
+    camera_remap_file = std::filesystem::path(remap_source).filename().string();
+    const std::filesystem::path remap_dst = std::filesystem::path(dst_path) / camera_remap_file;
+    if (!std::filesystem::exists(remap_dst) || !std::filesystem::equivalent(remap_source, remap_dst)) {
+      std::filesystem::copy_file(remap_source, remap_dst, std::filesystem::copy_options::overwrite_existing);
+    }
+    std::cout << "camera_remap: " << remap_source << " -> " << remap_dst.string() << std::endl;
+  }
+
   // process bags
   int num_threads_per_bag = omp_get_max_threads();
   std::cout << "processing images and points (num_threads_per_bag=" << num_threads_per_bag << ")" << std::endl;
@@ -227,6 +256,9 @@ bool Preprocess::run(int argc, char** argv) {
   config["camera"]["camera_model"] = camera_model;
   config["camera"]["intrinsics"] = intrinsics;
   config["camera"]["distortion_coeffs"] = distortion_coeffs;
+  if (!camera_remap_file.empty()) {
+    config["camera"]["remap_file"] = camera_remap_file;
+  }
 
   std::ofstream ofs(dst_path + "/calib.json");
   ofs << config.dump(2) << std::endl;
@@ -359,7 +391,7 @@ std::tuple<std::string, cv::Size, std::vector<double>, std::vector<double>> Prep
 
   std::string camera_model = vm["camera_model"].as<std::string>();
   if (camera_model != "auto") {
-    const std::unordered_set<std::string> valid_camera_models = {"plumb_bob", "fisheye", "equidistant", "omnidir", "equirectangular"};
+    const std::unordered_set<std::string> valid_camera_models = {"plumb_bob", "fisheye", "equidistant", "omnidir", "equirectangular", "remap"};
     if (!valid_camera_models.count(camera_model)) {
       std::cerr << vlcal::console::bold_red << "error: invalid camera model " << camera_model << vlcal::console::reset << std::endl;
 
@@ -376,6 +408,8 @@ std::tuple<std::string, cv::Size, std::vector<double>, std::vector<double>> Prep
     std::vector<double> distortion_coeffs;
     if (camera_model == "equirectangular") {
       intrinsics = {static_cast<double>(image_size.width), static_cast<double>(image_size.height)};
+    } else if (camera_model == "remap") {
+      // The remap file (--camera_remap) holds the whole model
     } else {
       if (!vm.count("camera_intrinsics")) {
         std::cerr << vlcal::console::bold_red << "error: camera_intrinsics has not been set!!" << vlcal::console::reset << std::endl;

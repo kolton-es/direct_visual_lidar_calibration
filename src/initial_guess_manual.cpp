@@ -83,14 +83,16 @@ public:
     ifs >> config;
 
     const std::string camera_model = config["camera"]["camera_model"];
-    const std::vector<double> intrinsics = config["camera"]["intrinsics"];
-    const std::vector<double> distortion_coeffs = config["camera"]["distortion_coeffs"];
-
     std::cout << "camera_model:" << camera_model << std::endl;
-    std::cout << "intrinsics  :" << intrinsics.size() << std::endl;
-    std::cout << "distortion  :" << distortion_coeffs.size() << std::endl;
+    if (camera_model != "remap") {
+      std::cout << "intrinsics  :" << config["camera"]["intrinsics"].size() << std::endl;
+      std::cout << "distortion  :" << config["camera"]["distortion_coeffs"].size() << std::endl;
+    }
 
-    proj = camera::create_camera(camera_model, intrinsics, distortion_coeffs);
+    proj = camera::create_camera(config["camera"], data_path);
+    if (!proj) {
+      abort();
+    }
 
     const std::vector<std::string> bag_names = config["meta"]["bag_names"];
     for (const auto& bag_name : bag_names) {

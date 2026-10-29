@@ -23,6 +23,7 @@
 //     sequence_a/
 //       image.png              (PNG, JPEG, BMP or TIFF)
 //       camera_info.json       {"distortion_model", "intrinsics": [fx,fy,cx,cy], "distortion_coeffs": [...]}
+//                              or {"distortion_model": "remap", "remap_file": "camera_remap.yml"}
 //       points/1679988354559472320.pcd
 //       points/1679988354659472320.pcd
 //       ...
@@ -186,9 +187,29 @@ protected:
 
     const auto camera_info = nlohmann::json::parse(ifs);
     const std::string distortion_model = camera_info["distortion_model"];
-    const std::vector<double> intrinsics = camera_info["intrinsics"];
+    const std::vector<double> intrinsics = camera_info.value("intrinsics", std::vector<double>());
     const std::vector<double> distortion_coeffs = camera_info.value("distortion_coeffs", std::vector<double>());
     return {distortion_model, intrinsics, distortion_coeffs};
+  }
+
+  virtual std::string get_camera_remap(const std::string& bag_filename, const std::string& camera_info_topic) override {
+    const fs::path path = fs::path(bag_filename) / camera_info_topic;
+    std::ifstream ifs(path);
+    if (camera_info_topic.empty() || !ifs) {
+      return "";
+    }
+
+    const auto camera_info = nlohmann::json::parse(ifs);
+    if (!camera_info.contains("remap_file")) {
+      return "";
+    }
+
+    // Relative to the camera info file
+    fs::path remap_file = camera_info["remap_file"].get<std::string>();
+    if (remap_file.is_relative()) {
+      remap_file = path.parent_path() / remap_file;
+    }
+    return remap_file.lexically_normal().string();
   }
 
   virtual cv::Mat get_image(const std::string& bag_filename, const std::string& image_topic) override {

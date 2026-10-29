@@ -45,10 +45,10 @@ public:
 
     ifs >> config;
 
-    const std::string camera_model = config["camera"]["camera_model"];
-    const std::vector<double> intrinsics = config["camera"]["intrinsics"];
-    const std::vector<double> distortion_coeffs = config["camera"]["distortion_coeffs"];
-    proj = camera::create_camera(camera_model, intrinsics, distortion_coeffs);
+    proj = camera::create_camera(config["camera"], data_path);
+    if (!proj) {
+      abort();
+    }
 
     const std::vector<std::string> bag_names = config["meta"]["bag_names"];
     for (const auto& bag_name : bag_names) {
