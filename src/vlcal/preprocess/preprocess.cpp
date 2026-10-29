@@ -41,16 +41,16 @@ bool Preprocess::run(int argc, char** argv) {
   // clang-format off
   description.add_options()
     ("help", "produce help message")
-    ("data_path", value<std::string>(), "directory that contains rosbags for calibration")
+    ("data_path", value<std::string>(), "directory that contains the sequence directories for calibration")
     ("dst_path", value<std::string>(), "directory to save preprocessed data")
-    ("bag_id", value<int>(), "specify the bag to use (just for evaluation)")
-    ("first_n_bags", value<int>(), "use only the first N bags (just for evaluation)")
-    ("auto_topic,a", "automatically select topics")
+    ("bag_id", value<int>(), "specify the sequence to use (just for evaluation)")
+    ("first_n_bags", value<int>(), "use only the first N sequences (just for evaluation)")
+    ("auto_topic,a", "automatically select the image, camera info and points of each sequence (the default; kept for compatibility)")
     ("dynamic_lidar_integration,d", "create target point cloud from dynamic LiDAR data (for velodyne-like LiDARs)")
     ("intensity_channel,i", value<std::string>()->default_value("auto"), "auto or channel name")
-    ("camera_info_topic", value<std::string>())
-    ("image_topic", value<std::string>())
-    ("points_topic", value<std::string>())
+    ("camera_info", value<std::string>(), "camera info file in each sequence directory (default: the only *camera_info*.json)")
+    ("image", value<std::string>(), "image file in each sequence directory (default: the only image file)")
+    ("points", value<std::string>(), "scan directory in each sequence directory (default: the only directory of PCD/PLY scans)")
     ("camera_model", value<std::string>()->default_value("auto"), "auto, atan, plumb_bob, fisheye(=equidistant), omnidir, or equirectangular")
     ("camera_intrinsics", value<std::string>(), "camera intrinsic parameters [fx,fy,cx,cy(,xi)] (don't put spaces between values!!)")
     ("camera_distortion_coeffs", value<std::string>(), "camera distortion parameters [k1,k2,p1,p2,k3] (don't put spaces between values!!)")
@@ -90,14 +90,14 @@ bool Preprocess::run(int argc, char** argv) {
     bag_filenames.emplace_back(path.path().string());
   }
 
-  std::cout << "input_bags:" << std::endl;
+  std::cout << "input sequences:" << std::endl;
   for (const auto& bag_filename : bag_filenames) {
     std::cout << "- " << bag_filename << std::endl;
   }
 
   if (bag_filenames.empty()) {
-    std::cerr << vlcal::console::bold_red << "error: no input bags!!" << vlcal::console::reset << std::endl;
-    return 1;
+    std::cerr << vlcal::console::bold_red << "error: no input sequences!!" << vlcal::console::reset << std::endl;
+    return false;
   }
 
   std::sort(bag_filenames.begin(), bag_filenames.end());
@@ -113,7 +113,7 @@ bool Preprocess::run(int argc, char** argv) {
     const int first_n_bags = vm["first_n_bags"].as<int>();
     bag_filenames.erase(bag_filenames.begin() + first_n_bags, bag_filenames.end());
 
-    std::cerr << vlcal::console::bold_yellow << "use only the following rosbags:" << vlcal::console::reset << std::endl;
+    std::cerr << vlcal::console::bold_yellow << "use only the following sequences:" << vlcal::console::reset << std::endl;
     for (const auto& bag_filename : bag_filenames) {
       std::cerr << vlcal::console::bold_yellow << "- " << bag_filename << vlcal::console::reset << std::endl;
     }
@@ -125,7 +125,7 @@ bool Preprocess::run(int argc, char** argv) {
   const auto camera_info_topic = std::get<0>(topics);
   const auto image_topic = std::get<1>(topics);
   const auto points_topic = std::get<2>(topics);
-  std::cout << "selected topics:" << std::endl;
+  std::cout << "selected inputs:" << std::endl;
   std::cout << "- camera_info: " << camera_info_topic << std::endl;
   std::cout << "- image      : " << image_topic << std::endl;
   std::cout << "- points     : " << points_topic << std::endl;
@@ -219,9 +219,9 @@ bool Preprocess::run(int argc, char** argv) {
 
   nlohmann::json config;
   config["meta"]["data_path"] = data_path;
-  config["meta"]["camera_info_topic"] = camera_info_topic;
-  config["meta"]["image_topic"] = image_topic;
-  config["meta"]["points_topic"] = points_topic;
+  config["meta"]["camera_info"] = camera_info_topic;
+  config["meta"]["image"] = image_topic;
+  config["meta"]["points"] = points_topic;
   config["meta"]["intensity_channel"] = intensity_channel;
   config["meta"]["bag_names"] = bag_names;
   config["camera"]["camera_model"] = camera_model;
@@ -268,49 +268,49 @@ std::tuple<std::string, std::string, std::string> Preprocess::get_topics(const b
   std::string image_topic;
   std::string points_topic;
 
-  if (vm.count("auto_topic")) {
+  if (!vm.count("camera_info") || !vm.count("image") || !vm.count("points")) {
     const auto topics_and_types = get_topics_and_types(bag_filename);
-    std::cout << "topics in " << bag_filename << ":" << std::endl;
+    std::cout << "contents of " << bag_filename << ":" << std::endl;
     for (const auto& [topic, type] : topics_and_types) {
       std::cout << "- " << topic << " : " << type << std::endl;
 
       if (type.find("CameraInfo") != std::string::npos) {
         if (!camera_info_topic.empty()) {
-          std::cerr << vlcal::console::bold_yellow << "warning: bag constains multiple camera_info topics!!" << vlcal::console::reset << std::endl;
+          std::cerr << vlcal::console::bold_yellow << "warning: sequence contains multiple camera_info files!!" << vlcal::console::reset << std::endl;
         }
         camera_info_topic = topic;
       } else if (type.find("Image") != std::string::npos) {
         if (!image_topic.empty()) {
-          std::cerr << vlcal::console::bold_yellow << "warning: bag constains multiple image topics!!" << vlcal::console::reset << std::endl;
+          std::cerr << vlcal::console::bold_yellow << "warning: sequence contains multiple images!!" << vlcal::console::reset << std::endl;
         }
         image_topic = topic;
       } else if (type.find("PointCloud2") != std::string::npos) {
         if (!points_topic.empty()) {
-          std::cerr << vlcal::console::bold_yellow << "warning: bag constains multiple points topics!!" << vlcal::console::reset << std::endl;
+          std::cerr << vlcal::console::bold_yellow << "warning: sequence contains multiple scan directories!!" << vlcal::console::reset << std::endl;
         }
         points_topic = topic;
       }
     }
   }
 
-  if (camera_info_topic.empty() && vm.count("camera_info_topic")) {
-    camera_info_topic = vm["camera_info_topic"].as<std::string>();
+  if (vm.count("camera_info")) {
+    camera_info_topic = vm["camera_info"].as<std::string>();
   }
-  if (image_topic.empty() && vm.count("image_topic")) {
-    image_topic = vm["image_topic"].as<std::string>();
+  if (vm.count("image")) {
+    image_topic = vm["image"].as<std::string>();
   }
-  if (points_topic.empty() && vm.count("points_topic")) {
-    points_topic = vm["points_topic"].as<std::string>();
+  if (vm.count("points")) {
+    points_topic = vm["points"].as<std::string>();
   }
 
   if (camera_info_topic.empty()) {
-    std::cerr << console::bold_yellow << "warning: failed to get camera_info topic!!" << console::reset << std::endl;
+    std::cerr << console::bold_yellow << "warning: failed to find a camera_info file!!" << console::reset << std::endl;
   }
   if (image_topic.empty()) {
-    std::cerr << console::bold_yellow << "warning: failed to get image topic!!" << console::reset << std::endl;
+    std::cerr << console::bold_yellow << "warning: failed to find an image!!" << console::reset << std::endl;
   }
   if (points_topic.empty()) {
-    std::cerr << console::bold_yellow << "warning: failed to get points topic!!" << console::reset << std::endl;
+    std::cerr << console::bold_yellow << "warning: failed to find a scan directory!!" << console::reset << std::endl;
   }
 
   return {camera_info_topic, image_topic, points_topic};
@@ -354,7 +354,7 @@ std::tuple<std::string, cv::Size, std::vector<double>, std::vector<double>> Prep
   //
   cv::Size image_size = get_image_size(bag_filename, image_topic);
   if (image_size.width == 0 && image_size.height == 0) {
-    std::cerr << vlcal::console::bold_yellow << "warning: image size is not set (image_topic=" << image_topic << ")" << vlcal::console::reset << std::endl;
+    std::cerr << vlcal::console::bold_yellow << "warning: image size is not set (image=" << image_topic << ")" << vlcal::console::reset << std::endl;
   }
 
   std::string camera_model = vm["camera_model"].as<std::string>();
@@ -413,7 +413,7 @@ std::pair<cv::Mat, Frame::ConstPtr> Preprocess::get_image_and_points(
   //
   cv::Mat image = get_image(bag_filename, image_topic);
   if (!image.data) {
-    std::cerr << vlcal::console::bold_red << "error: failed to obtain an image (image_topic=" << image_topic << ")" << vlcal::console::reset << std::endl;
+    std::cerr << vlcal::console::bold_red << "error: failed to obtain an image (image=" << image_topic << ")" << vlcal::console::reset << std::endl;
     abort();
   }
   cv::equalizeHist(image.clone(), image);

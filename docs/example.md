@@ -10,6 +10,9 @@
 - [ouster_ros1.tar.gz (ROS1)](https://zenodo.org/record/7779880/files/ouster_ros1.tar.gz?download=1)
 
 !!!note
+    The commands below run inside the Docker image (`./docker_run.sh --data DIR`, where the tools are on `PATH`). The bags are converted to [dataset folders](https://github.com/kolton-es/direct_visual_lidar_calibration#dataset-format) first; no ROS installation is needed.
+
+!!!note
     CameraInfo messages in the example ROS1 bag files exhibit an MD5 checksum that is different from that of the standard sensor_msgs/CameraInfo msg due to ROS2-ROS1 bag conversion issues. Because this affects the automatic camera info extraction, you need to manually specify camera parameters for preprocessing.
 
 ## Livox-camera calibration
@@ -27,7 +30,7 @@ The livox dataset contains five ros2 bags, and each bag contains points/image/ca
 $ ls livox
 # rosbag2_2023_03_09-13_42_46  rosbag2_2023_03_09-13_44_10  rosbag2_2023_03_09-13_44_54  rosbag2_2023_03_09-13_46_10  rosbag2_2023_03_09-13_46_54
 
-$ ros2 bag info livox/rosbag2_2023_03_09-13_42_46/
+# Contents of one bag (as reported by `ros2 bag info livox/rosbag2_2023_03_09-13_42_46/`):
 # Files:             rosbag2_2023_03_09-13_42_46_0.db3
 # Bag size:          582.9 MiB
 # Storage id:        sqlite3
@@ -44,10 +47,11 @@ $ ros2 bag info livox/rosbag2_2023_03_09-13_42_46/
 
 ### 2. Preprocessing
 
+Convert the bags to a dataset folder (one sequence per bag), then preprocess it:
 ```bash
-# -a : Detect points/image/camera_info topics automatically
+$ bag_to_dataset.py livox --out livox_dataset
 # -v : Enable visualization
-$ ros2 run direct_visual_lidar_calibration preprocess livox livox_preprocessed -av
+$ preprocess livox_dataset livox_preprocessed -v
 ```
 
 <div class="youtube">
@@ -69,26 +73,23 @@ $ ls livox_preprocessed/
 
 ### 3a. Initial guess (Automatic)
 
-!!!warning
-    SuperGlue is not allowed to be used for commercial purposes. If you are working for profit, use the manual initial guess estimation instead.
-
-Run SuperGlue to find correspondences between LiDAR can camera images. Because SuperGlue requires the upward directions of images are roughtly aligned, add ```---rotate_camera 90``` option to rotate camera images:
+Run DaD + RoMa matching to find correspondences between LiDAR and camera images. Because matching works best when the upward directions of the images are roughly aligned, add ```--rotate_camera 90``` option to rotate camera images:
 ```bash
-$ ros2 run direct_visual_lidar_calibration find_matches_superglue.py livox_preprocessed --rotate_camera 90
+$ find_matches_roma.py livox_preprocessed --rotate_camera 90
 ```
 
 Then, run ```initial_guess_auto``` to perform RANSAC-based initial guess estimation:
 ```bash
-$ ros2 run direct_visual_lidar_calibration initial_guess_auto livox_preprocessed
+$ initial_guess_auto livox_preprocessed
 ```
 
-![rosbag2_2023_03_09-13_42_46_superglue](https://user-images.githubusercontent.com/31344317/228459350-d1d4c83a-53b7-409f-bddd-d548a08b3c9f.jpg)
+`livox_preprocessed/*_matches.png` shows the matches.
 
 
 ### 3b. Initial guess (Manual)
 
 ```bash
-$ ros2 run direct_visual_lidar_calibration initial_guess_manual livox_preprocessed
+$ initial_guess_manual livox_preprocessed
 ```
 
 1. Right click a 3D point on the point cloud and a corresponding 2D point on the image
@@ -106,13 +107,13 @@ $ ros2 run direct_visual_lidar_calibration initial_guess_manual livox_preprocess
 
 Perform NID-based fine LiDAR-camera registration to refine the LiDAR-camera transformation estimate:
 ```bash
-$ ros2 run direct_visual_lidar_calibration calibrate livox_preprocessed
+$ calibrate livox_preprocessed
 ```
 
 ### 5. Calibration result inspection
 
 ```bash
-$ ros2 run direct_visual_lidar_calibration calibrate livox_preprocessed
+$ viewer livox_preprocessed
 ```
 
 ![Screenshot_20230328_182427](https://user-images.githubusercontent.com/31344317/228191764-837e5fa1-b5d1-4d62-817b-f306473554d5.png)
@@ -152,11 +153,11 @@ Once the calibration is completed, open ```livox_preprocessed/calib.json``` with
       "rosbag2_2023_03_09-13_46_10",
       "rosbag2_2023_03_09-13_46_54"
     ],
-    "camera_info_topic": "/camera_info",
-    "data_path": "livox",
-    "image_topic": "/image",
+    "camera_info": "camera_info.json",
+    "data_path": "livox_dataset",
+    "image": "image.png",
     "intensity_channel": "intensity",
-    "points_topic": "/livox/points"
+    "points": "points"
   },
   "results": {
     "T_lidar_camera": [
@@ -205,7 +206,7 @@ The ouster dataset contains two ros2 bags, and each bag contains points/image/ca
 $ ls ouster
 # rosbag2_2023_03_28-16_25_54  rosbag2_2023_03_28-16_26_51
 
-$ ros2 bag info ouster/rosbag2_2023_03_28-16_25_54/
+# Contents of one bag (as reported by `ros2 bag info ouster/rosbag2_2023_03_28-16_25_54/`):
 # Files:             rosbag2_2023_03_28-16_25_54_0.db3
 # Bag size:          1.2 GiB
 # Storage id:        sqlite3
@@ -222,10 +223,10 @@ $ ros2 bag info ouster/rosbag2_2023_03_28-16_25_54/
 
 For spinning-type LiDARs, enable dynamic points integration to generate dense point clouds while compensating for the sensor motion.
 ```bash
-# -a : Detect points/image/camera_info topics automatically
+$ bag_to_dataset.py ouster --out ouster_dataset
 # -d : Use dynamic points integrator
 # -v : Enable visualization
-$ ros2 run direct_visual_lidar_calibration preprocess ouster ouster_preprocessed -adv
+$ preprocess ouster_dataset ouster_preprocessed -dv
 ```
 
 <div class="youtube">
@@ -234,28 +235,25 @@ $ ros2 run direct_visual_lidar_calibration preprocess ouster ouster_preprocessed
 
 ### 3a. Initial guess (Automatic)
 
-!!!warning
-    SuperGlue is not allowed to be used for commercial purposes.
-
 ```bash
-$ ros2 run direct_visual_lidar_calibration find_matches_superglue.py ouster_preprocessed
-$ ros2 run direct_visual_lidar_calibration initial_guess_auto ouster_preprocessed
+$ find_matches_roma.py ouster_preprocessed
+$ initial_guess_auto ouster_preprocessed
 ```
 
 ### 3b. Initial guess (Manual)
 
 ```bash
-$ ros2 run direct_visual_lidar_calibration initial_guess_manual ouster_preprocessed
+$ initial_guess_manual ouster_preprocessed
 ```
 
 ### 4. Fine registration
 
 ```bash
-$ ros2 run direct_visual_lidar_calibration calibrate ouster_preprocessed
+$ calibrate ouster_preprocessed
 ```
 
 ### 5. Calibration result inspection
 
 ```bash
-$ ros2 run direct_visual_lidar_calibration calibrate ouster_preprocessed
+$ viewer ouster_preprocessed
 ```

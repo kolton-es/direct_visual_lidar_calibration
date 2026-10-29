@@ -5,44 +5,45 @@
 ## 1. Preprocessing
 
 ```bash
-$ ros2 run direct_visual_lidar_calibration preprocess data_path dst_path
+$ preprocess data_path dst_path
 ```
+
+`data_path` holds one directory per sequence with an image, `camera_info.json` and a folder of PCD/PLY scans ([dataset format](https://github.com/kolton-es/direct_visual_lidar_calibration#dataset-format)); convert ROS bags with `bag_to_dataset.py BAGS --out data_path`.
 
 | Option                             | Description                                                                     |
 |:-----------------------------------|:--------------------------------------------------------------------------------|
 | -v [ --visualize ]                 | Show points accumulation process                                                |
-| -a [ --auto_topic ]                | Select image/camera_info/points topics automatically                            |
+| -a [ --auto_topic ]                | Select image/camera_info/points automatically (the default; kept for compatibility) |
 | -d [ --dynamic_lidar_integration ] | Create target point clouds from dynamic LiDAR data (for velodyne-like LiDARs)   |
 | -i [ --intensity_channel ]         | "auto" or point intensity channel name                                          |
-| --camera_info_topic                | CameraInfo topic name                                                           |
-| --image_topic                      | Image topic name                                                                |
-| --points_topic                     | PointCloud2 topic name                                                          |
+| --camera_info                      | Camera info file in each sequence (default: the only `*camera_info*.json`)      |
+| --image                            | Image file in each sequence (default: the only image)                           |
+| --points                           | Scan directory in each sequence (default: the only directory of PCD/PLY files)  |
 | --camera_model                     | auto, atan, plumb_bob, fisheye, omnidir, or equirectangular                     |
 | --camera_intrinsic                 | Camera intrinsic parameters: fx,fy,cx,cy(,xi) (Don't put spaces between values) |
 | --camera_distortion_coeffs         | Camera distortion parameters [k1,k2,p1,p2,k3] (Don't put spaces between values) |
 | --voxel_resolution                 | Downsampling resolution                                                         |
 | --min_distance                     | Minimum point distance. Points closer than this value will be discarded         |
 
-***Example1***: Automatically select image/camera_info/points topics and use the *dynamic point integrator* for an Ouster LiDAR
+***Example1***: Use the *dynamic point integrator* for an Ouster LiDAR
 ```bash
-# -a = Automatic topic selection
 # -d = Dynamic points integration
 # -v = Visualization
-$ ros2 run direct_visual_lidar_calibration preprocess ouster_pinhole ouster_pinhole_preprocessed -a -d -v
+$ preprocess ouster_pinhole ouster_pinhole_preprocessed -d -v
 ```
 
 !!!note
-    Automatic topic selection requires each rosbag to contain single image/camera_info/points topics.
+    Automatic selection requires each sequence to contain a single image, camera_info file and scan directory.
 
 !!!note
-    ```distortion_model``` of the camera_info msg must be ```plumb_bob``` or ```fisheye```. For other distortion models, specify the camera model name and parameters manually as in Example2.
+    ```distortion_model``` in camera_info.json must be ```plumb_bob``` or ```fisheye```. For other distortion models, specify the camera model name and parameters manually as in Example2.
 
 
-***Example2***: Manually specify image/points topics and camera parameters
+***Example2***: Manually specify the image, the scans and camera parameters
 ```
-$ ros2 run direct_visual_lidar_calibration preprocess ouster_pinhole ouster_pinhole_preprocessed \
-  --image_topic /camera/image \
-  --points_topic /os_cloud_node/points \
+$ preprocess ouster_pinhole ouster_pinhole_preprocessed \
+  --image image.png \
+  --points points \
   --camera_model plumb_bob \
   --camera_intrinsics 810.38,810.28,822.84,622.47
   --camera_distortion_coeffs
@@ -53,7 +54,7 @@ $ ros2 run direct_visual_lidar_calibration preprocess ouster_pinhole ouster_pinh
 ### Option1: Manual estimation
 
 ```bash
-$ ros2 run direct_visual_lidar_calibration initial_guess_manual preprocessed_data_path
+$ initial_guess_manual preprocessed_data_path
 ```
 
 1. Right click a 3D point on the point cloud and a corresponding 2D point on the image
@@ -69,27 +70,25 @@ $ ros2 run direct_visual_lidar_calibration initial_guess_manual preprocessed_dat
 
 ### Option2: Automatic estimation
 
-!!!warning
-    SuperGlue is not allowed to be used for commercial purposes!!
-
 ```bash
-$ ros2 run direct_visual_lidar_calibration find_matches_superglue.py preprocessed_data_path
-$ ros2 run direct_visual_lidar_calibration initial_guess_auto preprocessed_data_path
+$ find_matches_roma.py preprocessed_data_path
+$ initial_guess_auto preprocessed_data_path
 ```
 
-!!!note
-    SuperGlue requires the upward directions of camera and LiDAR images are roughly aligned. Use ```--rotate_camera``` and ```--rotate_lidar``` options to ensure this. (e.g., ```--rotate_camera 90```. Only 90, 180, and 270 degree rotations are allowed.)
+`find_matches_roma.py` detects [DaD](https://github.com/Parskatt/dad) keypoints in the camera and LiDAR intensity images and matches them with the [RoMa](https://github.com/Parskatt/RoMa) dense matcher (both MIT licensed; this replaces upstream's SuperGlue, which is non-commercial). `initial_guess_auto` then estimates the transformation from the matches with RANSAC. Main options: `--num_keypoints` (DaD keypoints per image, default 2000), `--max_dist` (how close a warped camera keypoint must land to a LiDAR keypoint), `--certainty_thresh` (minimum RoMa certainty) and `--force_cpu`. It runs on the CPU in Docker (about 20 s per sequence) and on CUDA when available.
 
 !!!note
-    You can find ```*_superglue.png``` saved in the data directory that represents detected 2D-3D correspondences.
-![rosbag2_2022_12_09-11_51_00_superglue](https://user-images.githubusercontent.com/31344317/213388449-e1a80f56-1cc7-45b6-bf0e-239505e3dc24.png)
+    Matching works best when the upward directions of the camera and LiDAR images are roughly aligned. Use ```--rotate_camera``` and ```--rotate_lidar``` options to ensure this. (e.g., ```--rotate_camera 90```. Only 90, 180, and 270 degree rotations are allowed.)
+
+!!!note
+    You can find ```*_matches.png``` saved in the data directory that represents detected 2D-3D correspondences.
 
 
 
 ## 3. Calibration
 
 ```bash
-$ ros2 run direct_visual_lidar_calibration calibrate preprocessed_data_path
+$ calibrate preprocessed_data_path
 ```
 
 | Option                                              | Description                                                                     |
@@ -134,11 +133,11 @@ Once the calibration is completed, open ```calib.json``` in the data directory w
       "rosbag2_2022_12_09-11_52_50",
       "rosbag2_2022_12_09-11_53_36"
     ],
-    "camera_info_topic": "/drone01/camera_info",
+    "camera_info": "camera_info.json",
     "data_path": "ouster_pinhole",
-    "image_topic": "/drone01/image/compressed",
+    "image": "image.png",
     "intensity_channel": "reflectivity",
-    "points_topic": "/drone01/points"
+    "points": "points"
   },
   "results": {
     "T_lidar_camera": [
@@ -180,6 +179,6 @@ Once the calibration is completed, open ```calib.json``` in the data directory w
 ## 4. Result inspection
 
 ```bash
-$ ros2 run direct_visual_lidar_calibration viewer preprocessed_data_path
+$ viewer preprocessed_data_path
 ```
 ![Screenshot_20230119_173547](https://user-images.githubusercontent.com/31344317/213393507-efe30dce-097f-4b65-b91f-56336454991d.png)

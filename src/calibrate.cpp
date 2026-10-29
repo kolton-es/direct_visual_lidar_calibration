@@ -121,6 +121,11 @@ public:
 
     while (!optimization_terminated) {
       vis.spin_once();
+      if (vm.count("background")) {
+        // Nobody sees the hidden viewer, and redrawing it continuously takes CPU
+        // from the optimization (a lot with software OpenGL, e.g. in Docker).
+        std::this_thread::sleep_for(std::chrono::milliseconds(200));
+      }
     }
 
     optimization_thread.join();
@@ -147,7 +152,8 @@ public:
     viewer->append_text(sst.str());
     viewer->spin_once();
 
-    if (!vm.count("auto_quit")) {
+    // The hidden viewer of a background run cannot be closed, so do not wait for it
+    if (!vm.count("auto_quit") && !vm.count("background")) {
       viewer->spin();
     }
   }
@@ -177,7 +183,7 @@ int main(int argc, char** argv) {
     ("nelder_mead_init_step", value<double>()->default_value(1e-3), "Nelder-mead initial step size")
     ("nelder_mead_convergence_criteria", value<double>()->default_value(1e-8), "Nelder-mead convergence criteria")
     ("auto_quit", "automatically quit after calibration")
-    ("background", "hide viewer and run calibration in background")
+    ("background", "hide viewer, run calibration in background and quit when done")
   ;
   // clang-format on
 

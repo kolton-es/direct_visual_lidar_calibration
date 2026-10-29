@@ -20,7 +20,7 @@ cat faro/camera_params.txt
 ### 2. Preprocessing
 
 ```bash
-$ ros2 run direct_visual_lidar_calibration preprocess_map \
+$ preprocess_map \
   --map_path faro/map.ply \
   --image_path faro/image00.jpg \
   --dst_path faro_preprocessed \
@@ -32,13 +32,13 @@ $ ros2 run direct_visual_lidar_calibration preprocess_map \
 ### 3. Initial guess
 
 ```bash
-$ ros2 run direct_visual_lidar_calibration initial_guess_manual faro_preprocessed
+$ initial_guess_manual faro_preprocessed
 ```
 
 ### 4. Fine registration
 
 ```bash
-$ ros2 run direct_visual_lidar_calibration calibrate faro_preprocessed
+$ calibrate faro_preprocessed
 ```
 
 <div class="youtube">

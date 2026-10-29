@@ -9,30 +9,12 @@ if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
   set_property(CACHE CMAKE_BUILD_TYPE PROPERTY STRINGS "Debug" "Release" "MinSizeRel" "RelWithDebInfo")
 endif()
 
-if($ENV{ROS_VERSION} EQUAL 1)
-  # ROS1
-  find_package(catkin REQUIRED COMPONENTS rosbag sensor_msgs cv_bridge)
-  catkin_package()
-else()
-  # ROS2
-  find_package(ament_cmake_auto REQUIRED)
-  find_package(ament_cmake_python REQUIRED)
-  ament_auto_find_build_dependencies()
-endif()
-
 find_package(PCL REQUIRED)
 find_package(Ceres REQUIRED)
 find_package(GTSAM REQUIRED)
 find_package(OpenCV REQUIRED)
 find_package(Boost REQUIRED COMPONENTS filesystem program_options date_time)
 find_package(Iridescence REQUIRED)
-
-set(OLD_DISTRO "humble;galactic;foxy")
-if($ENV{ROS_DISTRO} IN_LIST OLD_DISTRO)
-  add_definitions(-DCV_BRIDGE_INCLUDE_H)
-else()
-  add_definitions(-DCV_BRIDGE_INCLUDE_HPP)
-endif()
 
 find_package(OpenMP)
 if (OPENMP_FOUND)
@@ -84,36 +66,17 @@ target_link_libraries(direct_visual_lidar_calibration
 )
 
 
-if($ENV{ROS_VERSION} EQUAL 1)
-  # ROS1
-  add_executable(preprocess
-    src/preprocess_ros1.cpp
-  )
-  target_link_libraries(preprocess
-    direct_visual_lidar_calibration
-  )
-  target_include_directories(preprocess PUBLIC
-    ${catkin_INCLUDE_DIRS}
-  )
-  target_link_libraries(preprocess
-    ${catkin_LIBRARIES}
-  )
-else()
-  # ROS2
-  ament_auto_add_executable(preprocess
-    src/preprocess_ros2.cpp
-  )
-  target_link_libraries(preprocess
-    direct_visual_lidar_calibration
-  )
-endif()
+# preprocess
+add_executable(preprocess
+  src/preprocess_dataset.cpp
+)
+target_link_libraries(preprocess
+  direct_visual_lidar_calibration
+)
 
 # preprocess_map
 add_executable(preprocess_map
   src/preprocess_map.cpp
-)
-target_include_directories(preprocess_map PRIVATE
-  ${catkin_INCLUDE_DIRS}
 )
 target_link_libraries(preprocess_map
   direct_visual_lidar_calibration
@@ -123,9 +86,6 @@ target_link_libraries(preprocess_map
 add_executable(initial_guess_manual
   src/initial_guess_manual.cpp
 )
-target_include_directories(initial_guess_manual PRIVATE
-  ${catkin_INCLUDE_DIRS}
-)
 target_link_libraries(initial_guess_manual
   direct_visual_lidar_calibration
 )
@@ -133,9 +93,6 @@ target_link_libraries(initial_guess_manual
 # initial_guess_auto
 add_executable(initial_guess_auto
   src/initial_guess_auto.cpp
-)
-target_include_directories(initial_guess_auto PRIVATE
-  ${catkin_INCLUDE_DIRS}
 )
 target_link_libraries(initial_guess_auto
   direct_visual_lidar_calibration
@@ -145,9 +102,6 @@ target_link_libraries(initial_guess_auto
 add_executable(calibrate
   src/calibrate.cpp
 )
-target_include_directories(calibrate PRIVATE
-  ${catkin_INCLUDE_DIRS}
-)
 target_link_libraries(calibrate
   direct_visual_lidar_calibration
 )
@@ -155,9 +109,6 @@ target_link_libraries(calibrate
 # viewer
 add_executable(viewer
   src/viewer.cpp
-)
-target_include_directories(viewer PRIVATE
-  ${catkin_INCLUDE_DIRS}
 )
 target_link_libraries(viewer
   direct_visual_lidar_calibration
@@ -170,21 +121,19 @@ install(
 
 install(
   TARGETS
+  preprocess
   preprocess_map
   initial_guess_manual
   initial_guess_auto
   calibrate
   viewer
   DESTINATION
-  lib/${PROJECT_NAME}
+  bin
 )
 
-if($ENV{ROS_VERSION} EQUAL 1)
-  # ROS1
-else()
-  # ROS2
-  ament_python_install_package(${PROJECT_NAME})
-  install(PROGRAMS scripts/find_matches_superglue.py DESTINATION lib/${PROJECT_NAME})
-  ament_export_libraries(direct_visual_lidar_calibration)
-  ament_auto_package()
-endif()
+install(PROGRAMS
+  scripts/find_matches_roma.py
+  scripts/bag_to_dataset.py
+  DESTINATION
+  bin
+)
